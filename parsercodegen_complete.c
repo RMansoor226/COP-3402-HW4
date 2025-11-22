@@ -429,8 +429,11 @@ void procedureDeclaration() {
         char procName[MAX_TOKEN_LENGTH];
         strcpy(procName, current()->lexeme);
 
+        int procedureJmpIndex = codeIndex;
+        insertCommand("JMP", 0, 0); // Jump over procedure body
+
         // Add procedure to symbol table
-        insertSymbol(3, procName, currentLevel, codeIndex);
+        insertSymbol(3, procName, 0, codeIndex + 1);
 
         nextToken();
         if (current()->type != semicolonsym)
@@ -452,6 +455,8 @@ void procedureDeclaration() {
         if (current()->type != semicolonsym)
             printError("procedure declaration must be followed by a semicolon");
         nextToken();
+
+        OPR[procedureJmpIndex].m = codeIndex;// Set jump target to after procedure body
     }
 }
 
@@ -536,7 +541,7 @@ void block() {
     constDeclaration();
     int nums = varDeclaration();
     procedureDeclaration();
-    insertCommand("INC", 0, nums + 3);\
+    insertCommand("INC", 0, nums + 3);
 
     statement();
 
