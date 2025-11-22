@@ -1,24 +1,34 @@
 /*
-Assignment :
-vm.c - Implement a P - machine virtual machine
-Authors : Rohaan Mansoor; Nathan Miriello
-Language : C ( only )
-To Compile :
-gcc -O2 -Wall -std=c11 -o vm vm.c
+Assignment:
+HW4 - Complete Parser and Code Generator for PL/0
+(with Procedures, Call, and Else)
+Author(s): Rohaan Mansoor, Nathan Miriello
+Language: C (only)
+To Compile:
+Scanner:
+gcc -O2 -std=c11 -o lex lex.c
+Parser/Code Generator:
+gcc -O2 -std=c11 -o parsercodegen_complete parsercodegen_complete.c
+Virtual Machine:
+gcc -O2 -std=c11 -o vm vm.c
 To Execute (on Eustis):
-./ vm input.txt
+./lex <input_file.txt>
+./parsercodegen_complete
+./vm elf.txt
 where:
-input.txt is the name of the file containing PM /0 instructions ;
-each line has three integers ( OP L M )
-Notes :
-- Implements the PM /0 virtual machine described in the homework
-instructions .
-- No dynamic memory allocation or pointer arithmetic .
-- Does not implement any VM instruction using a separate function .
-- Runs on Eustis .
-Class : COP 3402 - Systems Software - Fall 2025
-Instructor : Dr . Jie Lin
-Due Date : Friday , September 12 th , 2025
+<input_file.txt> is the path to the PL/0 source program
+Notes:
+- lex.c accepts ONE command-line argument (input PL/0 source file)
+- parsercodegen_complete.c accepts NO command-line arguments
+- Input filename is hard-coded in parsercodegen_complete.c
+- Implements recursive-descent parser for extended PL/0 grammar
+- Supports procedures, call statements, and if-then-else
+- Generates PM/0 assembly code (see Appendix A for ISA)
+- VM must support EVEN instruction (OPR 0 11)
+- All development and testing performed on Eustis
+Class: COP3402 - System Software - Fall 2025
+Instructor: Dr. Jie Lin
+Due Date: Friday, November 21, 2025 at 11:59 PM ET
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,9 +127,9 @@ void print(int op, int l, int m, int pas[], int pc, int bp, int sp, int instruct
     printf("\n");
 }
 
-int main(void) {
+int main(int argc, char** argv) {
     // Read input file
-    FILE *input = fopen("elf.txt", "r");
+    FILE *input = fopen(argv[1], "r");
     if (!input) {
         printf("Unable to open file!\n");
         return 1;
@@ -225,7 +235,7 @@ int main(void) {
                         break;
                     case 11:
                         pas[sp+1] = (pas[sp] % 2 == 0) ? 1 : 0;
-                        //sp++;
+                        sp++;
                         break;
                 }
                 break;

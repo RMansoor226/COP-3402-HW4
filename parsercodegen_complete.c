@@ -1,29 +1,36 @@
 /*
 Assignment:
-HW3 - Parser and Code Generator for PL/0
-Author(s): <Rohaan Mansoor>, <Nathan Miriello>
+HW4 - Complete Parser and Code Generator for PL/0
+(with Procedures, Call, and Else)
+Author(s): Rohaan Mansoor, Nathan Miriello
 Language: C (only)
 To Compile:
 Scanner:
 gcc -O2 -std=c11 -o lex lex.c
 Parser/Code Generator:
-gcc -O2 -std=c11 -o parsercodegen parsercodegen.c
+gcc -O2 -std=c11 -o parsercodegen_complete parsercodegen_complete.c
+Virtual Machine:
+gcc -O2 -std=c11 -o vm vm.c
 To Execute (on Eustis):
 ./lex <input_file.txt>
-./parsercodegen
+./parsercodegen_complete
+./vm elf.txt
 where:
 <input_file.txt> is the path to the PL/0 source program
 Notes:
 - lex.c accepts ONE command-line argument (input PL/0 source file)
-- parsercodegen.c accepts NO command-line arguments
-- Input filename is hard-coded in parsercodegen.c
-- Implements recursive-descent parser for PL/0 grammar
+- parsercodegen_complete.c accepts NO command-line arguments
+- Input filename is hard-coded in parsercodegen_complete.c
+- Implements recursive-descent parser for extended PL/0 grammar
+- Supports procedures, call statements, and if-then-else
 - Generates PM/0 assembly code (see Appendix A for ISA)
+- VM must support EVEN instruction (OPR 0 11)
 - All development and testing performed on Eustis
 Class: COP3402 - System Software - Fall 2025
 Instructor: Dr. Jie Lin
-Due Date: Friday, October 31, 2025 at 11:59 PM ET
+Due Date: Friday, November 21, 2025 at 11:59 PM ET
 */
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -169,15 +176,13 @@ int searchSymbolProcedure(char name[]) {
 }
 
 void insertSymbol(int kind, char name[], int val, int addr) {
-    if (searchSymbol(name) != -1) {
-        printf("Error: symbol name has already been declared\n");
-        return;
-    }
+    if (searchSymbol(name) != -1)
+        printError("symbol name has already been declared");
     symbolTable[symbolCount].kind = kind;
     strncpy(symbolTable[symbolCount].name, name, MAX_TOKEN_LENGTH-1);
     symbolTable[symbolCount].name[MAX_TOKEN_LENGTH-1] = '\0';
     symbolTable[symbolCount].val = val;
-    symbolTable[symbolCount].level = 0;
+    symbolTable[symbolCount].level = currentLevel;
     symbolTable[symbolCount].addr = addr;
     symbolTable[symbolCount].mark = 0;
     symbolCount++;
@@ -210,7 +215,7 @@ void factor() {
         int symbolIndex = searchSymbol(current()->lexeme);
 
         if (symbolIndex == -1)
-            printError("undeclared identifier\n");
+            printError("undeclared identifier");
 
         if (symbolTable[symbolIndex].kind == 1)
             insertCommand("LIT", 0, symbolTable[symbolIndex].val);
@@ -227,10 +232,10 @@ void factor() {
         nextToken();
         expression();
         if (current()->type != rparentsym)
-            printError("right parenthesis must follow left parenthesis\n");
+            printError("right parenthesis must follow left parenthesis");
         nextToken();
     }   else {
-        printError("arithmetic equations must contain operands, parentheses, numbers, or symbols\n");
+        printError("arithmetic equations must contain operands, parentheses, numbers, or symbols");
     }
 }
 
@@ -282,7 +287,7 @@ void condition() {
         int code = current()->type;
 
         if (!(code >= eqsym && code <= geqsym))
-            printError("condition must contain comparison operator\n");
+            printError("condition must contain comparison operator");
 
         nextToken();
         expression();
@@ -295,14 +300,14 @@ void statement() {
         int symbolIndex = searchSymbol(current()->lexeme);
 
         if (symbolIndex == -1)
-            printError("undeclared identifier\n");
+            printError("undeclared identifier");
 
         if (symbolTable[symbolIndex].kind != 2)
-            printError("only variable values may be altered\n");
+            printError("only variable values may be altered");
 
         nextToken();
         if (current()->type != becomessym)
-            printError("assignment statements must use ':='\n");
+            printError("assignment statements must use :=");
 
         nextToken();
         expression();
@@ -317,38 +322,39 @@ void statement() {
         while (current()->type == semicolonsym);
 
         if (current()->type != endsym)
-            printError("begin must be followed by end\n");
+            printError("begin must be followed by end");
         nextToken();
     }   else if (current()->type == ifsym) {
         nextToken();
         condition();
 
         if (current()->type != thensym)
-            printError("if must be followed by then\n");
+            printError("if must be followed by then");
         nextToken();
 
         int jpcIndex = codeIndex;
         insertCommand("JPC", 0, 0);
 
-        // Parse body of if-statement
+        // Parse body of if statement
         statement();
 
         // Check if the else keyword is present
-        if (current()->type == elsesym)    {
-            int jmpIndex = codeIndex;
-            insertCommand("JMP", 0, 0);
-            OPR[jpcIndex].m = 3 * codeIndex;
-            nextToken();
-            statement(); // Parse else body
-            OPR[jmpIndex].m = 3 * codeIndex;
-        }   else {
-            // Check if if-statement is terminated by fi keyword
-            if (current()->type != fisym)
-                printError("if must end in fi\n");
-            OPR[jpcIndex].m = 3 * codeIndex;
-        }
+        if (current()->type != elsesym)
+            printError("if statement must include else clause");
 
-        if (current()->type == fisym)
+        int jmpIndex = codeIndex;
+        insertCommand("JMP", 0, 0); // Jump over else body
+        OPR[jpcIndex].m = codeIndex; // Set JPC target to start of else block
+
+        nextToken();
+        statement(); // Parse else body
+
+        OPR[jmpIndex].m = codeIndex; // Set JMP target to end of else block
+
+        // Check if else-statement is terminated by fi keyword
+        if (current()->type != fisym)
+            printError("else must be followed by fi");
+        else
             nextToken();
 
     }   else if (current()->type == whilesym) {
@@ -357,7 +363,7 @@ void statement() {
         condition();
 
         if (current()->type != dosym)
-            printError("while must be followed by do\n");
+            printError("while must be followed by do");
         nextToken();
 
         int jpcIndex = codeIndex;
@@ -367,19 +373,19 @@ void statement() {
 
         insertCommand("JMP", 0, loopIndex);
 
-        OPR[jpcIndex].m = 3 * codeIndex;
+        OPR[jpcIndex].m = codeIndex;
     }   else if (current()->type == readsym) {
         nextToken();
         if (current()->type != identsym)
-            printf("const, var, read, procedure, and call must be followed by identifier\n");
+            printError("const, var, read, procedure, and call keywords must be followed by identifier");
 
         int i = searchSymbol(current()->lexeme);
 
         if (i == -1)
-            printError("undeclared identifier\n");
+            printError("undeclared identifier");
 
         if (symbolTable[i].kind != 2)
-            printError("only variable values may be altered\n");
+            printError("only variable values may be altered");
 
         insertCommand("SYS", 0, 2);
         int L = currentLevel - symbolTable[i].level;
@@ -392,12 +398,15 @@ void statement() {
     }   else if (current()->type == callsym) {
         nextToken();
         if (current()->type != identsym)
-            printError("const, var, read, procedure, and call must be followed by identifier\n");
+            printError("const, var, read, procedure, and call keywords must be followed by identifier");
 
         int i = searchSymbol(current()->lexeme);
 
         if (i == -1)
-            printError("call statement may only target procedures\n");
+            printError("undeclared identifier");
+
+        if (symbolTable[i].kind != 3)
+            printError("call statement may only target procedures");
 
         int L = currentLevel - symbolTable[i].level;
         insertCommand("CAL", L, symbolTable[i].addr);
@@ -411,21 +420,21 @@ void procedureDeclaration() {
     while (current()->type == procsym) {
         nextToken();
         if (current()->type != identsym)
-            printError("procedure declaration must be followed by semicolon\n");
+            printError("const, var, read, procedure, and call keywords must be followed by identifier");
 
         // Check if identifier already exists in symbol table
         if (searchSymbol(current()->lexeme) != -1)
-            printError("symbol name has already been declared\n");
+            printError("symbol name has already been declared");
 
         char procName[MAX_TOKEN_LENGTH];
         strcpy(procName, current()->lexeme);
 
         // Add procedure to symbol table
-        insertSymbol(3, procName, currentLevel + 1, codeIndex);
+        insertSymbol(3, procName, currentLevel, codeIndex);
 
         nextToken();
         if (current()->type != semicolonsym)
-            printError("procedure declaration must be followed by semicolon\n");
+            printError("procedure declaration must be followed by a semicolon");
         nextToken();
 
         currentLevel++;
@@ -441,7 +450,7 @@ void procedureDeclaration() {
         currentLevel--;
 
         if (current()->type != semicolonsym)
-            printError("procedure declaration must be followed by semicolon\n");
+            printError("procedure declaration must be followed by a semicolon");
         nextToken();
     }
 }
@@ -455,11 +464,11 @@ int varDeclaration() {
             // Retrieve next token and verify if it's an identifier
             nextToken();
             if (current()->type != identsym)
-                printError("const, var, read, procedure, and call must be followed by identifier\n");
+                printError("const, var, read, procedure, and call keywords must be followed by identifier");
 
             // Check if identifier already exists in symbol table
             if (searchSymbol(current()->lexeme) != -1) {
-                printError("symbol name has already been declared\n");
+                printError("symbol name has already been declared");
             }
 
             // Add variable to symbol table
@@ -474,7 +483,7 @@ int varDeclaration() {
         while (current()->type == commasym);
 
         if (current()->type != semicolonsym)
-            printError("constant and variable declarations must be followed by a semicolon\n");
+            printError("constant and variable declarations must be followed by a semicolon");
         nextToken();
     }
     return varCount;
@@ -487,11 +496,11 @@ void constDeclaration() {
             // Retrieve next token and verify if it's an identifier
             nextToken();
             if (current()->type != identsym)
-                printError("const, var, read, procedure, and call must be followed by identifier\n");
+                printError("const, var, read, procedure, and call keywords must be followed by identifier");
 
             // Check if identifier already exists in symbol table
             if (searchSymbol(current()->lexeme) != -1)
-                printError("symbol name has already been declared\n");
+                printError("symbol name has already been declared");
 
             char ident[MAX_TOKEN_LENGTH];
             strcpy(ident, current()->lexeme);
@@ -499,12 +508,12 @@ void constDeclaration() {
             // Retrieve next token and verify if it's =
             nextToken();
             if (current()->type != eqsym)
-                printError("constants must be assigned with =\n");
+                printError("constants must be assigned with =");
 
             // Retrieve next token and verify if it's a number
             nextToken();
             if (current()->type != numbersym)
-                printError("constants must be assigned an integer value\n");
+                printError("constants must be assigned an integer value");
 
             // Add constant to symbol table
             insertSymbol( 1, ident, current()->val, 0);
@@ -516,7 +525,7 @@ void constDeclaration() {
         while (current()->type == commasym);
 
         if (current()->type != semicolonsym)
-            printError("constant and variable declarations must be followed by a semicolon\n");
+            printError("constant and variable declarations must be followed by a semicolon");
         nextToken();
     }
 }
@@ -539,7 +548,7 @@ void block() {
 void program() {
     block();
     if (current()->type != periodsym) {
-        printError("program must end with period\n");
+        printError("program must end with period");
     }
     insertCommand("SYS", 0, 3);
 }
@@ -549,7 +558,7 @@ int main(void) {
     FILE* inputFile = fopen("tokenlist.txt", "r");
 
     if (!inputFile) {
-        printError("failed opening token list file.\n");
+        printError("failed opening token list file.");
         return 1;
     }
 
@@ -579,7 +588,7 @@ int main(void) {
 
     program();
 
-    OPR[jmpIndex].m = 3 * codeIndex;
+    OPR[jmpIndex].m = codeIndex;
     // Step 3: Generate PM/0 assembly code
     printf("Assembly Code:\n\n");
     printf("Line\t OP   L   M\n");
