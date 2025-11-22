@@ -115,6 +115,7 @@ typedef struct {
 
 Command OPR[MAX_TOKENS];
 int codeIndex = 0;
+int mainEntryIndex = 0;
 
 // Primary Function Prototypes for parsing and code generation
 
@@ -429,11 +430,10 @@ void procedureDeclaration() {
         char procName[MAX_TOKEN_LENGTH];
         strcpy(procName, current()->lexeme);
 
-        int procedureJmpIndex = codeIndex;
-        insertCommand("JMP", 0, 0); // Jump over procedure body
-
-        // Add procedure to symbol table
-        insertSymbol(3, procName, 0, codeIndex + 1);
+        int placeholder = codeIndex;
+        insertCommand("JMP",0,0);
+        int procEntry = codeIndex;
+        insertSymbol(3, procName, 0, procEntry + 1);
 
         nextToken();
         if (current()->type != semicolonsym)
@@ -456,7 +456,7 @@ void procedureDeclaration() {
             printError("procedure declaration must be followed by a semicolon");
         nextToken();
 
-        OPR[procedureJmpIndex].m = codeIndex;// Set jump target to after procedure body
+        OPR[placeholder].m = codeIndex;
     }
 }
 
@@ -541,13 +541,16 @@ void block() {
     constDeclaration();
     int nums = varDeclaration();
     procedureDeclaration();
-    insertCommand("INC", 0, nums + 3);
+
+    if (currentLevel == 0)
+        mainEntryIndex = codeIndex;
+
+    insertCommand("INC",0,nums + 3);
 
     statement();
 
-    for (int i = blockStart; i < symbolCount; i++) {
+    for (int i = blockStart; i < symbolCount; i++)
         symbolTable[i].mark = 1;
-    }
 }
 
 void program() {
@@ -593,7 +596,7 @@ int main(void) {
 
     program();
 
-    OPR[jmpIndex].m = codeIndex;
+    OPR[jmpIndex].m = codeIndex + mainEntryIndex + 1;
     // Step 3: Generate PM/0 assembly code
     printf("Assembly Code:\n\n");
     printf("Line\t OP   L   M\n");
